@@ -1,0 +1,19 @@
+services:
+  claude-gateway:
+    build: .
+    image: claude-gateway:latest
+    container_name: claude-gateway
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      GATEWAY_BIND: 0.0.0.0:8443
+      GATEWAY_WORKDIR: /app/workspace
+    ports:
+      - "${GATEWAY_PORT:-8443}:8443"
+    # No host paths are mounted: the agent cannot see this PC's files.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    mem_limit: 2g
+    pids_limit: 512

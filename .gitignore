@@ -1,0 +1,7 @@
+/target
+.env
+//workspace/*
+!/workspace/CLAUDE.md
+/examples/.chroma
+/examples/docs/
+/examples/.chats/

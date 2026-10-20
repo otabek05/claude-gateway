@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gateway Admin</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --text: #1d1d1f; --muted: #6b6b70; --line: #e4e2dc;
+    --accent: #c96442; --ok: #1e8e3e; --danger: #b3261e; --soft: #f1efe9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #17171a; --panel: #1f1f23; --text: #ececee; --muted: #9a9aa2; --line: #2e2e34;
+      --accent: #e08a68; --ok: #81c995; --danger: #f2b8b5; --soft: #26262c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", sans-serif;
+  }
+  header { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0 auto 0 0; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; margin-bottom: 18px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; }
+  input[type=text], input[type=password] {
+    font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; min-width: 0;
+  }
+  input:focus { outline: none; border-color: var(--accent); }
+  button {
+    font: inherit; font-weight: 600; cursor: pointer; border-radius: 8px; padding: 8px 14px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text);
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.small { padding: 3px 9px; font-size: 12px; font-weight: 500; }
+  button.danger:hover { border-color: var(--danger); color: var(--danger); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row input { flex: 1; }
+  .muted { color: var(--muted); }
+  .msg { min-height: 20px; margin-top: 8px; font-size: 13px; }
+  .msg.error { color: var(--danger); }
+  #login { max-width: 440px; margin: 12vh auto; }
+  #newKey { display: none; border-color: var(--ok); }
+  #newKey code {
+    display: block; padding: 10px 12px; margin: 8px 0; background: var(--soft); border-radius: 8px;
+    font-size: 13px; word-break: break-all; user-select: all;
+  }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td.actions { text-align: right; }
+  td code { font-size: 12px; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid currentColor; }
+  .pill.active { color: var(--ok); } .pill.disabled { color: var(--muted); }
+  tr.off td:not(.actions) { opacity: .55; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🔑 Gateway Admin</h1>
+  <span class="muted" id="who"></span>
+  <button class="small" id="logout" hidden>Log out</button>
+</header>
+
+<main>
+  <section class="card" id="login">
+    <h2>Sign in</h2>
+    <p class="muted">Enter the admin key (<code>GATEWAY_ADMIN_KEY</code> in the gateway's <code>.env</code>).</p>
+    <form id="loginForm" class="row">
+      <input type="password" id="adminKey" placeholder="sk-gw-admin-…" autocomplete="current-password" required>
+      <button class="primary">Sign in</button>
+    </form>
+    <div class="msg" id="loginMsg"></div>
+  </section>
+
+  <div id="app" hidden>
+    <section class="card">
+      <h2>Create a token</h2>
+      <form id="createForm" class="row">
+        <input type="text" id="keyName" placeholder="Name, e.g. telegram-bot or my-laptop" maxlength="100" required>
+        <button class="primary">Generate token</button>
+      </form>
+      <div class="msg" id="createMsg"></div>
+    </section>
+
+    <section class="card" id="newKey">
+      <h2>✓ Token created: <span id="newKeyName"></span></h2>
+      <p class="muted">Copy it now. It is shown only once; the gateway stores only a hash.</p>
+      <code id="newKeyValue"></code>
+      <div class="row"><button class="primary" id="copyKey">Copy token</button><button id="hideKey">Done</button></div>
+    </section>
+
+    <section class="card">
+      <h2>Tokens <span class="muted" id="count"></span></h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Token</th><th>Status</th><th>Requests</th><th>Last used</th><th>Created</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div class="msg" id="listMsg"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const KEY_STORE = "gatewayAdminKey";
+// The page is served at <base>/admin, e.g. /claude/api/admin behind the proxy.
+const BASE = location.pathname.replace(/\/admin\/?$/, "");
+let adminKey = null;
+try { adminKey = sessionStorage.getItem(KEY_STORE); } catch {}
+
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+function when(iso) {
+  if (!iso) return "never";
+  const secs = (Date.now() - new Date(iso)) / 1000;
+  if (secs < 60) return "just now";
+  if (secs < 3600) return `${Math.floor(secs / 60)} min ago`;
+  if (secs < 86400) return `${Math.floor(secs / 3600)} h ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+async function api(method, path, body) {
+  const resp = await fetch(BASE + path, {
+    method,
+    headers: { "x-api-key": adminKey, ...(body ? { "content-type": "application/json" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (resp.status === 401) { signOut("The admin key was rejected."); throw new Error("unauthorized"); }
+  if (!resp.ok) throw new Error(data.error?.message || `HTTP ${resp.status}`);
+  return data;
+}
+
+function showApp(on) {
+  $("login").hidden = on; $("app").hidden = !on; $("logout").hidden = !on;
+  $("who").textContent = on ? "signed in" : "";
+}
+
+function signOut(message) {
+  adminKey = null;
+  try { sessionStorage.removeItem(KEY_STORE); } catch {}
+  showApp(false);
+  $("loginMsg").textContent = message || "";
+  $("loginMsg").className = "msg" + (message ? " error" : "");
+}
+
+async function refresh() {
+  const { data } = await api("GET", "/admin/keys");
+  $("count").textContent = `(${data.length})`;
+  $("rows").innerHTML = data.length ? data.map((k) => `
+    <tr class="${k.status === "active" ? "" : "off"}">
+      <td>${esc(k.name)}</td>
+      <td><code>${esc(k.partial_key_hint)}</code></td>
+      <td><span class="pill ${k.status}">${k.status}</span></td>
+      <td>${k.request_count}</td>
+      <td title="${esc(k.last_used_at)}">${when(k.last_used_at)}</td>
+      <td title="${esc(k.created_at)}">${new Date(k.created_at).toLocaleDateString()}</td>
+      <td class="actions">
+        <button class="small" data-act="${k.status === "active" ? "disable" : "enable"}" data-id="${k.id}">${k.status === "active" ? "Disable" : "Enable"}</button>
+        <button class="small danger" data-act="delete" data-id="${k.id}" data-name="${esc(k.name)}">Delete</button>
+      </td>
+    </tr>`).join("") : `<tr><td colspan="7" class="muted">No tokens yet. Create one above.</td></tr>`;
+}
+
+$("loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  adminKey = $("adminKey").value.trim();
+  try {
+    await refresh();
+    try { sessionStorage.setItem(KEY_STORE, adminKey); } catch {}
+    $("adminKey").value = "";
+    showApp(true);
+  } catch (err) {
+    if (err.message !== "unauthorized") { $("loginMsg").textContent = err.message; $("loginMsg").className = "msg error"; }
+  }
+});
+
+$("createForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("createMsg").textContent = "";
+  try {
+    const key = await api("POST", "/admin/keys", { name: $("keyName").value.trim() });
+    $("newKeyName").textContent = key.name;
+    $("newKeyValue").textContent = key.key;
+    $("newKey").style.display = "block";
+    $("keyName").value = "";
+    await refresh();
+  } catch (err) {
+    $("createMsg").textContent = err.message; $("createMsg").className = "msg error";
+  }
+});
+
+$("copyKey").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("newKeyValue").textContent); $("copyKey").textContent = "Copied ✓"; }
+  catch { getSelection().selectAllChildren($("newKeyValue")); $("copyKey").textContent = "Press Ctrl+C"; }
+  setTimeout(() => ($("copyKey").textContent = "Copy token"), 2000);
+});
+$("hideKey").addEventListener("click", () => { $("newKey").style.display = "none"; $("newKeyValue").textContent = ""; });
+
+$("rows").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-act]");
+  if (!btn) return;
+  const { act, id, name } = btn.dataset;
+  try {
+    if (act === "delete") {
+      if (!confirm(`Delete the token "${name}"? Apps using it will stop working.`)) return;
+      await api("DELETE", `/admin/keys/${id}`);
+    } else {
+      await api("PATCH", `/admin/keys/${id}`, { status: act === "disable" ? "disabled" : "active" });
+    }
+    await refresh();
+  } catch (err) {
+    if (err.message !== "unauthorized") { $("listMsg").textContent = err.message; $("listMsg").className = "msg error"; }
+  }
+});
+
+$("logout").addEventListener("click", () => signOut());
+
+if (adminKey) refresh().then(() => showApp(true)).catch(() => {});
+else showApp(false);
+</script>
+</body>
+</html>

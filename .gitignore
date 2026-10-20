@@ -1,7 +1,10 @@
 /target
 .env
-//workspace/*
+/workspace/*
 !/workspace/CLAUDE.md
 /examples/.chroma
 /examples/docs/
 /examples/.chats/
+__pycache__/
+.venv/
+*.log
